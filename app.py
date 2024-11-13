@@ -1,5 +1,6 @@
-from flask import Flask, render_template, request
+from flask import Flask, render_template, request, send_from_directory
 from utils import init_db, get_product_prices, add_product, add_product_link
+import os
 
 app = Flask(__name__)
 
@@ -10,7 +11,7 @@ init_db()
 def index():
     product_id = request.args.get('product_id', default=1, type=int)
     prices = get_product_prices(product_id)
-    return render_template('index.html', prices=prices)
+    return send_from_directory(os.getcwd(), 'index.html')
 
 @app.route('/add_product', methods=['POST'])
 def add_new_product():
