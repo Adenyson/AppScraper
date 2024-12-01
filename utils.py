@@ -18,11 +18,21 @@ def init_db():
     conn = get_db_connection()
     cursor = conn.cursor()
     
+    # Tabela de usuários
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS users (
+            id TEXT PRIMARY KEY,
+            name TEXT,
+            email TEXT UNIQUE NOT NULL
+        )
+    ''')
+
     # Tabela de produtos
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS products (
             id SERIAL PRIMARY KEY,
-            product_name TEXT NOT NULL
+            product_name TEXT NOT NULL,
+            user_id TEXT REFERENCES users(id)
         )
     ''')
 
@@ -120,3 +130,36 @@ def get_product_prices(product_id):
     cursor.close()
     conn.close()
     return prices
+
+def get_user_products(user_id):
+    """
+    Retorna todos os produtos de um usuário com seus dados de preço para os gráficos
+    """
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    cursor.execute('''
+        SELECT p.id, p.product_name,
+               array_agg(ph.price ORDER BY ph.timestamp) as prices,
+               array_agg(ph.timestamp ORDER BY ph.timestamp) as dates
+        FROM products p
+        LEFT JOIN product_links pl ON p.id = pl.product_id
+        LEFT JOIN price_history ph ON pl.id = ph.link_id
+        WHERE p.user_id = %s
+        GROUP BY p.id, p.product_name
+    ''', (user_id,))
+    
+    products = []
+    for row in cursor.fetchall():
+        products.append({
+            'id': row[0],
+            'name': row[1],
+            'price_data': {
+                'prices': row[2] if row[2][0] is not None else [],
+                'dates': [d.strftime('%Y-%m-%d %H:%M') for d in row[3]] if row[3][0] is not None else []
+            }
+        })
+    
+    cursor.close()
+    conn.close()
+    return products
