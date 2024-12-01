@@ -1,29 +1,51 @@
 import os
 from flask import Flask, render_template, request, redirect, url_for, flash
 from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
+from utils import (
+    init_db,
+    add_product,
+    add_product_link,
+    get_user_products,
+    get_user_by_id,
+    create_or_update_user,
+    log_price,
+    check_link_exists,
+    delete_product_link,
+    update_product_name,
+    verify_user,
+    create_user,
+    create_or_update_google_user,
+    get_db_connection
+)
+from scraper import fetch_product_info, update_prices
+from urllib.parse import urlparse
+from dotenv import load_dotenv
+from datetime import datetime
+import threading
+import time
 from authlib.integrations.flask_client import OAuth
-from utils import init_db, get_product_prices, add_product, add_product_link, get_user_products
+
+load_dotenv()
 
 app = Flask(__name__)
-app.secret_key = os.getenv('SECRET_KEY', 'uma-chave-secreta-padrao')
+app.secret_key = os.getenv('SECRET_KEY')
 
 # Configuração do Login
 login_manager = LoginManager()
 login_manager.init_app(app)
 login_manager.login_view = 'login'
 
-# Configuração OAuth para Google
+# Configuração do OAuth
 oauth = OAuth(app)
-
-# Verificar se as variáveis de ambiente necessárias estão presentes
-if not os.getenv('GOOGLE_CLIENT_ID') or not os.getenv('GOOGLE_CLIENT_SECRET'):
-    print("AVISO: Credenciais do Google não configuradas!")
-
 google = oauth.register(
     name='google',
     client_id=os.getenv('GOOGLE_CLIENT_ID'),
     client_secret=os.getenv('GOOGLE_CLIENT_SECRET'),
-    server_metadata_url='https://accounts.google.com/.well-known/openid-configuration',
+    access_token_url='https://accounts.google.com/o/oauth2/token',
+    access_token_params=None,
+    authorize_url='https://accounts.google.com/o/oauth2/auth',
+    authorize_params=None,
+    api_base_url='https://www.googleapis.com/oauth2/v1/',
     client_kwargs={'scope': 'openid email profile'}
 )
 
@@ -33,45 +55,12 @@ class User(UserMixin):
         self.name = name
         self.email = email
 
-    @staticmethod
-    def get(user_id):
-        """
-        Busca usuário no banco de dados
-        """
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute('SELECT id, name, email FROM users WHERE id = %s', (user_id,))
-        user_data = cursor.fetchone()
-        cursor.close()
-        conn.close()
-        
-        if user_data:
-            return User(user_data[0], user_data[1], user_data[2])
-        return None
-
-def create_or_update_user(user_id, name, email):
-    """
-    Cria ou atualiza usuário no banco de dados
-    """
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute('''
-        INSERT INTO users (id, name, email) 
-        VALUES (%s, %s, %s)
-        ON CONFLICT (id) DO UPDATE 
-        SET name = EXCLUDED.name, email = EXCLUDED.email
-        RETURNING id
-    ''', (user_id, name, email))
-    user_id = cursor.fetchone()[0]
-    conn.commit()
-    cursor.close()
-    conn.close()
-    return user_id
-
 @login_manager.user_loader
 def load_user(user_id):
-    # Implementar busca do usuário no banco
-    return User.get(user_id)
+    user_data = get_user_by_id(user_id)
+    if user_data:
+        return User(user_data["_id"], user_data["name"], user_data["email"])
+    return None
 
 @app.route('/')
 def index():
@@ -80,30 +69,61 @@ def index():
         return render_template('index.html', products=products)
     return render_template('index.html')
 
-@app.route('/login')
+@app.route('/login', methods=['GET', 'POST'])
 def login():
-    redirect_uri = url_for('auth', _external=True)
+    if request.method == 'POST':
+        email = request.form.get('email')
+        password = request.form.get('password')
+        
+        user = verify_user(email, password)
+        if user:
+            login_user(User(str(user['_id']), user['name'], user['email']))
+            flash('Login realizado com sucesso!', 'success')
+            return redirect(url_for('index'))
+        
+        flash('Email ou senha inválidos.', 'error')
+        return redirect(url_for('login'))
+    
+    return render_template('login.html')
+
+@app.route('/register', methods=['GET', 'POST'])
+def register():
+    if request.method == 'POST':
+        email = request.form.get('email')
+        password = request.form.get('password')
+        name = request.form.get('name')
+        
+        user, error = create_user(email, password, name)
+        if user:
+            login_user(User(str(user['_id']), user['name'], user['email']))
+            flash('Conta criada com sucesso!', 'success')
+            return redirect(url_for('index'))
+        
+        flash(f'Erro ao criar conta: {error}', 'error')
+        return redirect(url_for('register'))
+    
+    return render_template('register.html')
+
+@app.route('/login/google')
+def google_login():
+    redirect_uri = url_for('google_authorize', _external=True)
     return google.authorize_redirect(redirect_uri)
 
-@app.route('/auth')
-def auth():
-    try:
-        token = google.authorize_access_token()
-        user_info = google.parse_id_token(token)
-        user_id = user_info['sub']
-        name = user_info.get('name', user_info.get('email', 'Usuário'))
-        email = user_info['email']
-        
-        # Criar ou atualizar usuário no banco
-        create_or_update_user(user_id, name, email)
-        
-        # Criar objeto User e fazer login
-        user = User(user_id, name, email)
-        login_user(user)
-        return redirect(url_for('index'))
-    except Exception as e:
-        flash(f'Erro no login: {str(e)}', 'error')
-        return redirect(url_for('index'))
+@app.route('/login/google/authorize')
+def google_authorize():
+    token = google.authorize_access_token()
+    resp = google.get('userinfo')
+    user_info = resp.json()
+    
+    user = create_or_update_google_user(
+        user_info['id'],
+        user_info['email'],
+        user_info['name']
+    )
+    
+    login_user(User(str(user['_id']), user['name'], user['email']))
+    flash('Login com Google realizado com sucesso!', 'success')
+    return redirect(url_for('index'))
 
 @app.route('/logout')
 @login_required
@@ -120,28 +140,151 @@ def add_new_product():
     return redirect(url_for('index'))
 
 @app.route('/add_link', methods=['POST'])
+@login_required
 def add_link():
-    product_id = int(request.form['product_id'])
-    product_url = request.form['product_url']
-    site_name = request.form['site_name']
-    link_id = add_product_link(product_id, product_url, site_name)
-    return f"Link adicionado com ID {link_id} para o produto {product_id}"
+    try:
+        product_id = request.form['product_id']
+        product_url = request.form['product_url']
+        
+        # Verifica se o link já existe
+        link_check = check_link_exists(product_url)
+        if link_check["exists"]:
+            try:
+                # Adiciona o link ao produto do usuário atual
+                link_id = add_product_link(
+                    product_id=product_id,
+                    product_url=product_url,
+                    site_name=link_check["site_name"],
+                    image_url=link_check.get("image_url"),
+                    favicon_url=link_check.get("favicon_url"),
+                    logo_url=link_check.get("logo_url")
+                )
+                
+                # Copia todo o histórico de preços existente
+                db = get_db_connection()
+                for price_record in link_check["price_history"]:
+                    db.price_history.insert_one({
+                        "link_id": link_id,
+                        "price": price_record["price"],
+                        "timestamp": price_record["timestamp"],
+                        "original_link_id": link_check["link_id"]  # Referência ao link original
+                    })
+                
+                flash(
+                    f'Link adicionado com sucesso! Este link já existia e todo o histórico '
+                    f'de preços desde {link_check["added_at"].strftime("%d/%m/%Y %H:%M")} '
+                    f'foi copiado para o seu perfil.',
+                    'success'
+                )
+                return redirect(url_for('index'))
+            except Exception as e:
+                print(f"Erro ao adicionar link existente: {e}")
+                flash('Erro ao adicionar o link.', 'error')
+                return redirect(url_for('index'))
+        
+        try:
+            product_info = fetch_product_info(product_url)
+            
+            link_id = add_product_link(
+                product_id=product_id,
+                product_url=product_url,
+                site_name=product_info['site_name'],
+                image_url=product_info['image_url'],
+                favicon_url=product_info['favicon_url'],
+                logo_url=product_info['logo_url']
+            )
+            
+            if product_info['price']:
+                log_price(link_id, product_info['price'])
+                flash(f'Link adicionado! Preço atual: R$ {product_info["price"]:.2f} em {product_info["site_name"]}', 'success')
+            else:
+                flash('Link adicionado, mas não foi possível detectar o preço.', 'warning')
+                
+        except Exception as e:
+            print(f"Erro ao buscar informações do produto: {e}")
+            link_id = add_product_link(
+                product_id=product_id,
+                product_url=product_url,
+                site_name=urlparse(product_url).netloc
+            )
+            flash('Link adicionado, mas houve um erro ao buscar as informações do produto.', 'warning')
+        
+        return redirect(url_for('index'))
+    except Exception as e:
+        print(f"Erro ao adicionar link: {e}")
+        flash('Erro ao adicionar link. Por favor, tente novamente.', 'error')
+        return redirect(url_for('index'))
 
-# Adicionar tratamento de erro 404
+@app.route('/delete_link/<link_id>', methods=['POST'])
+@login_required
+def delete_link(link_id):
+    if delete_product_link(link_id):
+        flash('Link removido com sucesso!', 'success')
+    else:
+        flash('Erro ao remover link.', 'error')
+    return redirect(url_for('index'))
+
+@app.route('/edit_product_name', methods=['POST'])
+@login_required
+def edit_product_name():
+    try:
+        product_id = request.form['product_id']
+        new_name = request.form['new_name'].strip()
+        
+        if not new_name:
+            flash('O nome do produto não pode ficar vazio.', 'error')
+            return redirect(url_for('index'))
+        
+        if update_product_name(product_id, new_name):
+            flash('Nome do produto atualizado com sucesso!', 'success')
+        else:
+            flash('Erro ao atualizar nome do produto.', 'error')
+            
+        return redirect(url_for('index'))
+    except Exception as e:
+        print(f"Erro ao editar nome do produto: {e}")
+        flash('Erro ao editar nome do produto.', 'error')
+        return redirect(url_for('index'))
+
 @app.errorhandler(404)
 def page_not_found(e):
     return render_template('404.html'), 404
 
-# Adicionar tratamento de erro 500
 @app.errorhandler(500)
 def internal_server_error(e):
     return render_template('500.html'), 500
 
+def background_update():
+    """
+    Executa a atualização em segundo plano
+    """
+    with app.app_context():
+        while True:
+            try:
+                print("Iniciando atualização automática...")
+                update_prices()
+                print("Atualização automática concluída!")
+                # Aguarda 1 hora antes da próxima atualização
+                time.sleep(3600)  # 3600 segundos = 1 hora
+            except Exception as e:
+                print(f"Erro na atualização automática: {e}")
+                # Em caso de erro, aguarda 5 minutos antes de tentar novamente
+                time.sleep(300)
+
 if __name__ == "__main__":
     try:
+        print("Inicializando banco de dados...")
         init_db()
+        print("Banco de dados inicializado com sucesso!")
+        
+        # Inicia a atualização em uma thread separada
+        print("Iniciando atualização automática dos produtos...")
+        update_thread = threading.Thread(target=background_update)
+        update_thread.daemon = True  # Thread será encerrada quando o programa principal terminar
+        update_thread.start()
+        
     except Exception as e:
-        print(f"Erro ao inicializar banco de dados: {e}")
+        print(f"Erro ao inicializar: {e}")
     
     port = int(os.getenv('PORT', 5000))
-    app.run(host='0.0.0.0', port=port)
+    app.run(host='0.0.0.0', port=port, debug=True)

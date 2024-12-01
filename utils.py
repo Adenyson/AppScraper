@@ -1,178 +1,334 @@
-import psycopg2
 import os
-
-# URL do banco de dados a partir das variáveis de ambiente
-DATABASE_URL = os.getenv("DATABASE_URL")
+from pymongo import MongoClient
+from bson.objectid import ObjectId
+from datetime import datetime
+import bcrypt
 
 def get_db_connection():
     """
-    Cria e retorna uma conexão com o banco de dados PostgreSQL.
-    Adaptado para o Railway.app
+    Cria e retorna uma conexão com o MongoDB
     """
-    try:
-        # Railway fornece a URL do banco de dados em DATABASE_URL
-        DATABASE_URL = os.getenv("DATABASE_URL")
-        
-        # Railway usa o prefixo postgres://, mas psycopg2 precisa de postgresql://
-        if DATABASE_URL.startswith("postgres://"):
-            DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
-            
-        conn = psycopg2.connect(DATABASE_URL)
-        return conn
-    except Exception as e:
-        print(f"Erro ao conectar ao banco de dados: {e}")
-        raise e
+    MONGODB_URI = os.getenv("MONGODB_URI")
+    client = MongoClient(MONGODB_URI)
+    db = client.appscraper
+    return db
 
 def init_db():
     """
-    Inicializa o banco de dados criando as tabelas 'products', 'product_links' e 'price_history' se não existirem.
+    Inicializa as coleções necessárias no MongoDB
     """
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    
-    # Tabela de usuários
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS users (
-            id TEXT PRIMARY KEY,
-            name TEXT,
-            email TEXT UNIQUE NOT NULL
-        )
-    ''')
-
-    # Tabela de produtos
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS products (
-            id SERIAL PRIMARY KEY,
-            product_name TEXT NOT NULL,
-            user_id TEXT REFERENCES users(id)
-        )
-    ''')
-
-    # Tabela de links de produtos
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS product_links (
-            id SERIAL PRIMARY KEY,
-            product_id INTEGER REFERENCES products(id) ON DELETE CASCADE,
-            product_url TEXT NOT NULL,
-            site_name TEXT
-        )
-    ''')
-
-    # Tabela de histórico de preços
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS price_history (
-            id SERIAL PRIMARY KEY,
-            link_id INTEGER REFERENCES product_links(id) ON DELETE CASCADE,
-            price REAL,
-            timestamp TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
-        )
-    ''')
-    
-    conn.commit()
-    cursor.close()
-    conn.close()
+    db = get_db_connection()
+    # Cria índices necessários
+    db.users.create_index("email", unique=True)
+    db.product_links.create_index("product_url")
 
 def add_product(product_name, user_id):
     """
-    Adiciona um novo produto ao banco de dados e retorna o ID do produto.
+    Adiciona um novo produto ao MongoDB
     """
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute('INSERT INTO products (product_name, user_id) VALUES (%s, %s) RETURNING id', 
-                  (product_name, user_id))
-    product_id = cursor.fetchone()[0]
-    conn.commit()
-    cursor.close()
-    conn.close()
-    return product_id
+    db = get_db_connection()
+    result = db.products.insert_one({
+        "product_name": product_name,
+        "user_id": user_id,
+        "created_at": datetime.utcnow()
+    })
+    return str(result.inserted_id)
 
-def add_product_link(product_id, product_url, site_name):
+def add_product_link(product_id, product_url, site_name, image_url=None, favicon_url=None, logo_url=None):
     """
-    Adiciona um novo link de preço para um produto específico e retorna o ID do link.
-
-    Parâmetros:
-    - product_id: ID do produto na tabela products.
-    - product_url: URL do produto para acompanhamento.
-    - site_name: Nome do site (opcional, para identificação).
+    Adiciona um novo link de produto
     """
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute('INSERT INTO product_links (product_id, product_url, site_name) VALUES (%s, %s, %s) RETURNING id',
-                   (product_id, product_url, site_name))
-    link_id = cursor.fetchone()[0]
-    conn.commit()
-    cursor.close()
-    conn.close()
-    return link_id
+    db = get_db_connection()
+    result = db.product_links.insert_one({
+        "product_id": product_id,
+        "product_url": product_url,
+        "site_name": site_name,
+        "image_url": image_url,
+        "favicon_url": favicon_url,
+        "logo_url": logo_url,
+        "created_at": datetime.utcnow()
+    })
+    return str(result.inserted_id)
 
 def log_price(link_id, price):
     """
-    Insere um novo registro de preço no histórico para um link específico.
-
-    Parâmetros:
-    - link_id: ID do link na tabela product_links.
-    - price: Preço atual do produto.
+    Registra um novo preço no histórico
     """
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute('INSERT INTO price_history (link_id, price) VALUES (%s, %s)', (link_id, price))
-    conn.commit()
-    cursor.close()
-    conn.close()
-
-def get_product_prices(product_id):
-    """
-    Recupera todos os links e o histórico de preços associados a um produto específico para comparação.
-
-    Parâmetros:
-    - product_id: ID do produto na tabela products.
-
-    Retorna:
-    - Uma lista de tuplas contendo (product_url, site_name, price, timestamp) para cada registro de histórico de preços.
-    """
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute('''
-        SELECT pl.product_url, pl.site_name, ph.price, ph.timestamp 
-        FROM product_links pl
-        JOIN price_history ph ON pl.id = ph.link_id
-        WHERE pl.product_id = %s
-        ORDER BY ph.timestamp DESC
-    ''', (product_id,))
-    prices = cursor.fetchall()
-    cursor.close()
-    conn.close()
-    return prices
+    db = get_db_connection()
+    db.price_history.insert_one({
+        "link_id": link_id,
+        "price": float(price),
+        "timestamp": datetime.utcnow()
+    })
 
 def get_user_products(user_id):
     """
-    Retorna todos os produtos de um usuário com seus dados de preço para os gráficos
+    Retorna todos os produtos de um usuário com seus links e preços
     """
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    
-    cursor.execute('''
-        SELECT p.id, p.product_name,
-               array_agg(ph.price ORDER BY ph.timestamp) as prices,
-               array_agg(ph.timestamp ORDER BY ph.timestamp) as dates
-        FROM products p
-        LEFT JOIN product_links pl ON p.id = pl.product_id
-        LEFT JOIN price_history ph ON pl.id = ph.link_id
-        WHERE p.user_id = %s
-        GROUP BY p.id, p.product_name
-    ''', (user_id,))
-    
+    db = get_db_connection()
     products = []
-    for row in cursor.fetchall():
-        products.append({
-            'id': row[0],
-            'name': row[1],
-            'price_data': {
-                'prices': row[2] if row[2][0] is not None else [],
-                'dates': [d.strftime('%Y-%m-%d %H:%M') for d in row[3]] if row[3][0] is not None else []
+    
+    for product in db.products.find({"user_id": user_id}):
+        product_id = str(product["_id"])
+        links = []
+        
+        # Inicializa as variáveis antes do loop
+        lowest_price = float('inf')
+        highest_price = 0
+        best_price_info = None
+        
+        for link in db.product_links.find({"product_id": product_id}):
+            link_id = str(link["_id"])
+            
+            # Busca histórico de preços
+            price_history = list(db.price_history.find(
+                {"link_id": link_id},
+                sort=[("timestamp", 1)]
+            ))
+            
+            # Verifica se é um link compartilhado
+            original_link = None
+            if price_history and "original_link_id" in price_history[0]:
+                original_link_id = price_history[0]["original_link_id"]
+                original_link = db.product_links.find_one({"_id": ObjectId(original_link_id)})
+                if original_link:
+                    original_product = db.products.find_one({"_id": original_link["product_id"]})
+                    if original_product:
+                        original_link["product_name"] = original_product["product_name"]
+            
+            latest_price = db.price_history.find_one(
+                {"link_id": link_id},
+                sort=[("timestamp", -1)]
+            )
+            
+            current_price = latest_price["price"] if latest_price else None
+            
+            if current_price:
+                if current_price < lowest_price:
+                    lowest_price = current_price
+                    best_price_info = {
+                        "value": current_price,
+                        "link": {
+                            "site_name": link["site_name"],
+                            "url": link["product_url"]
+                        }
+                    }
+                highest_price = max(highest_price, current_price)
+            
+            link_data = {
+                "id": link_id,
+                "url": link["product_url"],
+                "site_name": link["site_name"],
+                "image_url": link.get("image_url"),
+                "favicon_url": link.get("favicon_url"),
+                "logo_url": link.get("logo_url"),
+                "current_price": current_price,
+                "last_update": latest_price["timestamp"] if latest_price else None,
+                "price_data": {
+                    "prices": [ph["price"] for ph in price_history],
+                    "dates": [ph["timestamp"].strftime("%Y-%m-%d %H:%M") for ph in price_history]
+                }
             }
+            
+            # Adiciona informações do link original se existir
+            if original_link:
+                link_data["shared_from"] = {
+                    "product_name": original_link["product_name"],
+                    "added_at": original_link["created_at"]
+                }
+            
+            links.append(link_data)
+        
+        # Calcula a variação de preço
+        price_variation = None
+        if lowest_price != float('inf') and highest_price > 0:
+            price_variation = ((highest_price - lowest_price) / lowest_price) * 100
+        
+        products.append({
+            "id": product_id,
+            "name": product["product_name"],
+            "links": links,
+            "best_price": best_price_info if best_price_info else None,
+            "price_variation": price_variation,
+            "highest_price": highest_price if highest_price > 0 else None
         })
     
-    cursor.close()
-    conn.close()
     return products
+
+def get_user_by_id(user_id):
+    """
+    Busca um usuário pelo ID
+    """
+    db = get_db_connection()
+    return db.users.find_one({"_id": user_id})
+
+def create_or_update_user(user_id, name, email):
+    """
+    Cria ou atualiza um usuário no MongoDB
+    """
+    db = get_db_connection()
+    db.users.update_one(
+        {"_id": user_id},
+        {
+            "$set": {
+                "name": name,
+                "email": email,
+                "updated_at": datetime.utcnow()
+            }
+        },
+        upsert=True
+    )
+    return user_id
+
+def check_link_exists(product_url):
+    """
+    Verifica se um link já existe e retorna suas informações
+    """
+    db = get_db_connection()
+    link = db.product_links.find_one({"product_url": product_url})
+    if link:
+        # Busca informações do produto original
+        product = db.products.find_one({"_id": link["product_id"]})
+        
+        # Busca histórico de preços
+        price_history = list(db.price_history.find(
+            {"link_id": str(link["_id"])},
+            sort=[("timestamp", 1)]
+        ))
+        
+        # Busca o preço mais recente
+        latest_price = db.price_history.find_one(
+            {"link_id": str(link["_id"])},
+            sort=[("timestamp", -1)]
+        )
+        
+        return {
+            "exists": True,
+            "product_name": product["product_name"],
+            "product_id": str(product["_id"]),
+            "link_id": str(link["_id"]),
+            "added_at": link["created_at"],
+            "site_name": link.get("site_name"),
+            "image_url": link.get("image_url"),
+            "favicon_url": link.get("favicon_url"),
+            "logo_url": link.get("logo_url"),
+            "current_price": latest_price["price"] if latest_price else None,
+            "price_history": price_history,
+            "user_id": product["user_id"]  # ID do usuário original
+        }
+    return {"exists": False}
+
+def delete_product_link(link_id):
+    """
+    Remove um link e seu histórico de preços
+    """
+    db = get_db_connection()
+    try:
+        # Remove o histórico de preços primeiro
+        db.price_history.delete_many({"link_id": link_id})
+        # Remove o link
+        db.product_links.delete_one({"_id": ObjectId(link_id)})
+        return True
+    except Exception as e:
+        print(f"Erro ao deletar link: {e}")
+        return False
+
+def get_best_price_link(product_id):
+    """
+    Retorna o link com o melhor preço atual para um produto
+    """
+    db = get_db_connection()
+    links = db.product_links.find({"product_id": product_id})
+    best_price = float('inf')
+    best_link = None
+
+    for link in links:
+        latest_price = db.price_history.find_one(
+            {"link_id": str(link["_id"])},
+            sort=[("timestamp", -1)]
+        )
+        if latest_price and latest_price["price"] < best_price:
+            best_price = latest_price["price"]
+            best_link = {
+                "url": link["product_url"],
+                "site_name": link["site_name"],
+                "price": latest_price["price"],
+                "last_update": latest_price["timestamp"]
+            }
+    
+    return best_link
+
+def update_product_name(product_id, new_name):
+    """
+    Atualiza o nome de um produto
+    """
+    db = get_db_connection()
+    try:
+        result = db.products.update_one(
+            {"_id": ObjectId(product_id)},
+            {"$set": {"name": new_name}}
+        )
+        return result.modified_count > 0
+    except Exception as e:
+        print(f"Erro ao atualizar nome do produto: {e}")
+        return False
+
+def create_user(email, password, name):
+    """
+    Cria um novo usuário com email e senha
+    """
+    db = get_db_connection()
+    
+    # Verifica se o email já existe
+    if db.users.find_one({"email": email}):
+        return None, "Email já cadastrado"
+    
+    # Hash da senha
+    salt = bcrypt.gensalt()
+    hashed = bcrypt.hashpw(password.encode('utf-8'), salt)
+    
+    user = {
+        "_id": str(ObjectId()),
+        "email": email,
+        "password": hashed,
+        "name": name,
+        "created_at": datetime.utcnow(),
+        "auth_type": "email"
+    }
+    
+    try:
+        db.users.insert_one(user)
+        return user, None
+    except Exception as e:
+        return None, str(e)
+
+def verify_user(email, password):
+    """
+    Verifica credenciais do usuário
+    """
+    db = get_db_connection()
+    user = db.users.find_one({"email": email, "auth_type": "email"})
+    
+    if user and bcrypt.checkpw(password.encode('utf-8'), user['password']):
+        return user
+    return None
+
+def create_or_update_google_user(google_id, email, name):
+    """
+    Cria ou atualiza usuário do Google
+    """
+    db = get_db_connection()
+    user = db.users.find_one_and_update(
+        {"email": email},
+        {
+            "$set": {
+                "google_id": google_id,
+                "name": name,
+                "auth_type": "google",
+                "updated_at": datetime.utcnow()
+            }
+        },
+        upsert=True,
+        return_document=True
+    )
+    return user
