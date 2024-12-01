@@ -223,7 +223,32 @@
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script>
-        // Código para gerar os gráficos usando Plotly
+        // Adicione isso no início do script, antes do loop dos produtos
+        const siteColors = {
+            'Amazon': '#FF9900',
+            'Magalu': '#0086FF',
+            'Americanas': '#E60014',
+            'Mercadolivre': '#FFE600',
+            'Apple': '#A2AAAD',
+            'Kabum': '#F37021',
+            'Pichau': '#0473B0',
+            'Terabyte': '#00B4DB'
+        };
+
+        function getSiteColor(siteName) {
+            // Normaliza o nome do site (remove espaços, acentos e converte para minúsculas)
+            const normalizedName = siteName.toLowerCase()
+                .normalize('NFD')
+                .replace(/[\u0300-\u036f]/g, '')
+                .replace(/\s+/g, '');
+            
+            // Retorna a cor do site ou uma cor aleatória se o site não estiver mapeado
+            const color = siteColors[normalizedName] || 
+                '#' + Math.floor(Math.random()*16777215).toString(16).padStart(6, '0');
+            
+            return color;  // Retorna a mesma cor para ser usada na linha e nos marcadores
+        }
+
         {% if current_user.is_authenticated %}
             {% for product in products %}
                 {% if product.links %}
@@ -231,13 +256,37 @@
                     
                     {% for link in product.links %}
                         {% if link.price_data and link.price_data.prices %}
-                            data{{ product.id }}.push({
-                                x: {{ link.price_data.dates|tojson }},
-                                y: {{ link.price_data.prices|tojson }},
-                                type: 'scatter',
-                                mode: 'lines+markers',
-                                name: '{{ link.site_name }}'
-                            });
+                            // Filtra apenas os pontos onde existem preços
+                            const validPrices{{ link.id }} = [];
+                            const validDates{{ link.id }} = [];
+                            
+                            {% for i in range(link.price_data.prices|length) %}
+                                {% if link.price_data.prices[i] is not none %}
+                                    validPrices{{ link.id }}.push({{ link.price_data.prices[i] }});
+                                    validDates{{ link.id }}.push("{{ link.price_data.dates[i] }}");
+                                {% endif %}
+                            {% endfor %}
+                            
+                            if (validPrices{{ link.id }}.length > 0) {
+                                const siteColor = getSiteColor('{{ link.site_name }}');  // Pega a cor uma vez só
+                                data{{ product.id }}.push({
+                                    x: validDates{{ link.id }},
+                                    y: validPrices{{ link.id }},
+                                    type: 'scatter',
+                                    mode: 'lines+markers',
+                                    name: '{{ link.site_name }}',
+                                    line: {
+                                        color: siteColor,  // Usa a mesma cor para a linha
+                                        width: 2
+                                    },
+                                    marker: {
+                                        color: siteColor,  // Usa a mesma cor para os marcadores
+                                        size: 6,
+                                        symbol: 'circle'
+                                    },
+                                    hovertemplate: 'R$ %{y:.2f}<br>%{x}<extra></extra>'
+                                });
+                            }
                         {% endif %}
                     {% endfor %}
                     
@@ -246,11 +295,16 @@
                             title: 'Histórico de Preços por Site',
                             xaxis: { 
                                 title: 'Data',
-                                tickangle: -45
+                                tickangle: -45,
+                                type: 'date',
+                                tickformat: '%d/%m/%Y %H:%M',
+                                gridcolor: '#E1E1E1'
                             },
                             yaxis: { 
                                 title: 'Preço (R$)',
-                                tickformat: '.2f'
+                                tickformat: '.2f',
+                                tickprefix: 'R$ ',
+                                gridcolor: '#E1E1E1'
                             },
                             showlegend: true,
                             legend: {
@@ -258,17 +312,28 @@
                                 y: 1.2
                             },
                             margin: {
-                                l: 50,
-                                r: 50,
+                                l: 60,
+                                r: 30,
                                 t: 50,
                                 b: 100
-                            }
+                            },
+                            hovermode: 'closest',
+                            plot_bgcolor: '#FFFFFF',
+                            paper_bgcolor: '#FFFFFF'
                         };
                         
-                        Plotly.newPlot('priceChart{{ product.id }}', 
+                        const config = {
+                            responsive: true,
+                            displayModeBar: true,
+                            modeBarButtonsToRemove: ['lasso2d', 'select2d'],
+                            displaylogo: false
+                        };
+                        
+                        Plotly.newPlot(
+                            'priceChart{{ product.id }}', 
                             data{{ product.id }}, 
                             layout,
-                            {responsive: true}
+                            config
                         );
                     }
                 {% endif %}

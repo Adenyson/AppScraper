@@ -24,6 +24,7 @@ from datetime import datetime
 import threading
 import time
 from authlib.integrations.flask_client import OAuth
+from itertools import zip_longest
 
 load_dotenv()
 
@@ -63,11 +64,10 @@ def load_user(user_id):
     return None
 
 @app.route('/')
+@login_required
 def index():
-    if current_user.is_authenticated:
-        products = get_user_products(current_user.id)
-        return render_template('index.html', products=products)
-    return render_template('index.html')
+    products = get_user_products(current_user.id)
+    return render_template('index.html', products=products, zip=zip)
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
