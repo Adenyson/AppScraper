@@ -7,9 +7,21 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 def get_db_connection():
     """
     Cria e retorna uma conexão com o banco de dados PostgreSQL.
+    Adaptado para o Railway.app
     """
-    conn = psycopg2.connect(DATABASE_URL)
-    return conn
+    try:
+        # Railway fornece a URL do banco de dados em DATABASE_URL
+        DATABASE_URL = os.getenv("DATABASE_URL")
+        
+        # Railway usa o prefixo postgres://, mas psycopg2 precisa de postgresql://
+        if DATABASE_URL.startswith("postgres://"):
+            DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+            
+        conn = psycopg2.connect(DATABASE_URL)
+        return conn
+    except Exception as e:
+        print(f"Erro ao conectar ao banco de dados: {e}")
+        raise e
 
 def init_db():
     """
@@ -60,13 +72,14 @@ def init_db():
     cursor.close()
     conn.close()
 
-def add_product(product_name):
+def add_product(product_name, user_id):
     """
     Adiciona um novo produto ao banco de dados e retorna o ID do produto.
     """
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute('INSERT INTO products (product_name) VALUES (%s) RETURNING id', (product_name,))
+    cursor.execute('INSERT INTO products (product_name, user_id) VALUES (%s, %s) RETURNING id', 
+                  (product_name, user_id))
     product_id = cursor.fetchone()[0]
     conn.commit()
     cursor.close()
