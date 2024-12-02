@@ -258,6 +258,11 @@ def page_not_found(e):
 def internal_server_error(e):
     return render_template('500.html'), 500
 
+@app.errorhandler(Exception)
+def handle_exception(e):
+    app.logger.error(f"Erro não tratado: {str(e)}")
+    return render_template('500.html'), 500
+
 def background_update():
     """
     Executa a atualização em segundo plano
@@ -295,5 +300,5 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"Erro ao inicializar: {e}")
     
-    port = int(os.getenv('PORT', 5000))
-    app.run(port=port)
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host='0.0.0.0', port=port)

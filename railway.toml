@@ -3,11 +3,14 @@ builder = "nixpacks"
 buildCommand = "pip install -r requirements.txt"
 
 [deploy]
-startCommand = "gunicorn app:app"
+startCommand = "python run.py"
 healthcheckPath = "/"
-healthcheckTimeout = 100
+healthcheckTimeout = 300
 restartPolicyType = "on_failure"
-numReplicas = 1
+numReplicas = 2
 
 [deploy.env]
-PYTHON_VERSION = "3.11.8" 
+PYTHON_VERSION = "3.11.8"
+FLASK_APP = "app.py"
+FLASK_ENV = "production"
+  
