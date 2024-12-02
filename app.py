@@ -25,6 +25,7 @@ import threading
 import time
 from authlib.integrations.flask_client import OAuth
 from itertools import zip_longest
+from flask_caching import Cache
 
 load_dotenv()
 
@@ -49,6 +50,9 @@ google = oauth.register(
     api_base_url='https://www.googleapis.com/oauth2/v1/',
     client_kwargs={'scope': 'openid email profile'}
 )
+
+# Adicione cache se necessário
+cache = Cache(app, config={'CACHE_TYPE': 'simple'})
 
 class User(UserMixin):
     def __init__(self, user_id, name, email):
@@ -271,6 +275,11 @@ def background_update():
                 # Em caso de erro, aguarda 5 minutos antes de tentar novamente
                 time.sleep(300)
 
+# Use em rotas pesadas
+@cache.cached(timeout=300)
+def rota_pesada():
+    pass
+
 if __name__ == "__main__":
     try:
         print("Inicializando banco de dados...")
@@ -280,11 +289,11 @@ if __name__ == "__main__":
         # Inicia a atualização em uma thread separada
         print("Iniciando atualização automática dos produtos...")
         update_thread = threading.Thread(target=background_update)
-        update_thread.daemon = True  # Thread será encerrada quando o programa principal terminar
+        update_thread.daemon = True
         update_thread.start()
         
     except Exception as e:
         print(f"Erro ao inicializar: {e}")
     
     port = int(os.getenv('PORT', 5000))
-    app.run(host='0.0.0.0', port=port, debug=True)
+    app.run(port=port)
