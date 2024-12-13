@@ -28,11 +28,13 @@ from itertools import zip_longest
 from flask_caching import Cache
 import sqlite3
 from contextlib import contextmanager
+import logging
 
 load_dotenv()
 
 app = Flask(__name__)
 app.secret_key = os.getenv('SECRET_KEY')
+print(f"SECRET_KEY: {app.secret_key}")  # Temporário para verificar
 
 # Configuração do Login
 login_manager = LoginManager()
@@ -55,6 +57,9 @@ google = oauth.register(
 
 # Adicione cache se necessário
 cache = Cache(app, config={'CACHE_TYPE': 'simple'})
+
+# Configuração do logger
+logging.basicConfig(level=logging.DEBUG)
 
 class User(UserMixin):
     def __init__(self, user_id, name, email):
