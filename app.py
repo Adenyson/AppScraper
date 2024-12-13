@@ -34,7 +34,7 @@ load_dotenv()
 
 app = Flask(__name__)
 app.secret_key = os.getenv('SECRET_KEY')
-print(f"SECRET_KEY: {app.secret_key}")  # Temporário para verificar
+# print(f"SECRET_KEY: {app.secret_key}")  # Temporário para verificar
 
 # Configuração do Login
 login_manager = LoginManager()
@@ -330,21 +330,3 @@ def background_update():
 @cache.cached(timeout=300)
 def rota_pesada():
     pass
-
-if __name__ == "__main__":
-    try:
-        print("Inicializando banco de dados...")
-        init_db()
-        print("Banco de dados inicializado com sucesso!")
-        
-        # Inicia a atualização em uma thread separada
-        print("Iniciando atualização automática dos produtos...")
-        update_thread = threading.Thread(target=background_update)
-        update_thread.daemon = True
-        update_thread.start()
-        
-    except Exception as e:
-        print(f"Erro ao inicializar: {e}")
-    
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host='0.0.0.0', port=port)
