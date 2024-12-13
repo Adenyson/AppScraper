@@ -1,0 +1,6 @@
+[phases.install]
+cmds = [
+    "python -m pip install --upgrade pip --no-cache-dir",
+    "pip install --no-cache-dir -r requirements.txt"
+]
+// ... código existente ... 
