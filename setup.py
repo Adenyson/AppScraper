@@ -9,7 +9,6 @@ setup(
         "Werkzeug>=3.1.3",
         "flask-login>=0.6.3",
         "python-dotenv>=1.0.1",
-        "pymongo>=4.10.1",
         "bcrypt>=4.2.1",
         "beautifulsoup4>=4.12.3",
         "requests>=2.32.3",
