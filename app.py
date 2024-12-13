@@ -26,6 +26,8 @@ import time
 from authlib.integrations.flask_client import OAuth
 from itertools import zip_longest
 from flask_caching import Cache
+import sqlite3
+from contextlib import contextmanager
 
 load_dotenv()
 
@@ -64,14 +66,18 @@ class User(UserMixin):
 def load_user(user_id):
     user_data = get_user_by_id(user_id)
     if user_data:
-        return User(user_data["_id"], user_data["name"], user_data["email"])
+        return User(user_data["id"], user_data["name"], user_data["email"])
     return None
 
 @app.route('/')
 @login_required
 def index():
     products = get_user_products(current_user.id)
-    return render_template('index.html', products=products, zip=zip)
+    print("Produtos carregados:", products)  # Debug
+    for product in products:
+        for link in product['links']:
+            print(f"Link encontrado: {link}")  # Debug dos links
+    return render_template('index.html', products=products)
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
@@ -81,7 +87,7 @@ def login():
         
         user = verify_user(email, password)
         if user:
-            login_user(User(str(user['_id']), user['name'], user['email']))
+            login_user(User(str(user['id']), user['name'], user['email']))
             flash('Login realizado com sucesso!', 'success')
             return redirect(url_for('index'))
         
@@ -147,85 +153,86 @@ def add_new_product():
 @login_required
 def add_link():
     try:
-        product_id = request.form['product_id']
-        product_url = request.form['product_url']
+        # Log de todos os dados do formulário
+        print("Dados do formulário:", request.form)
         
-        # Verifica se o link já existe
-        link_check = check_link_exists(product_url)
-        if link_check["exists"]:
-            try:
-                # Adiciona o link ao produto do usuário atual
-                link_id = add_product_link(
-                    product_id=product_id,
-                    product_url=product_url,
-                    site_name=link_check["site_name"],
-                    image_url=link_check.get("image_url"),
-                    favicon_url=link_check.get("favicon_url"),
-                    logo_url=link_check.get("logo_url")
-                )
-                
-                # Copia todo o histórico de preços existente
-                db = get_db_connection()
-                for price_record in link_check["price_history"]:
-                    db.price_history.insert_one({
-                        "link_id": link_id,
-                        "price": price_record["price"],
-                        "timestamp": price_record["timestamp"],
-                        "original_link_id": link_check["link_id"]  # Referência ao link original
-                    })
-                
-                flash(
-                    f'Link adicionado com sucesso! Este link já existia e todo o histórico '
-                    f'de preços desde {link_check["added_at"].strftime("%d/%m/%Y %H:%M")} '
-                    f'foi copiado para o seu perfil.',
-                    'success'
-                )
-                return redirect(url_for('index'))
-            except Exception as e:
-                print(f"Erro ao adicionar link existente: {e}")
-                flash('Erro ao adicionar o link.', 'error')
-                return redirect(url_for('index'))
+        product_id = request.form.get('product_id')
+        product_url = request.form.get('product_url')
         
+        print("ID do produto recebido:", product_id)
+        print("URL recebida:", product_url)
+        
+        if not product_id:
+            print("ERRO: ID do produto não fornecido")
+            flash('ID do produto não fornecido', 'error')
+            return redirect(url_for('index'))
+            
+        # Validação: verifica se a URL foi fornecida    
+        if not product_url:
+            flash('URL do produto não fornecida', 'error')
+            return redirect(url_for('index'))
+
         try:
+            # Busca informações do produto na URL fornecida (preço, imagens, etc)
             product_info = fetch_product_info(product_url)
             
+            # Log das informações obtidas
+            print(f"Informações obtidas do produto: {product_info}")
+            
+            # Tenta adicionar o link ao produto usando a função do utils.py
             link_id = add_product_link(
-                product_id=product_id,
-                product_url=product_url,
-                site_name=product_info['site_name'],
-                image_url=product_info['image_url'],
-                favicon_url=product_info['favicon_url'],
-                logo_url=product_info['logo_url']
+                product_id=product_id,  # ID do produto ao qual o link será vinculado
+                product_url=product_url,  # URL fornecida pelo usuário
+                site_name=urlparse(product_url).netloc,  # Nome do site extraído da URL
+                image_url=product_info.get('image_url'),  # Imagem do produto (se encontrada)
+                favicon_url=product_info.get('favicon_url'),  # Favicon do site (se encontrado)
+                logo_url=product_info.get('logo_url')  # Logo do site (se encontrado)
             )
             
-            if product_info['price']:
-                log_price(link_id, product_info['price'])
-                flash(f'Link adicionado! Preço atual: R$ {product_info["price"]:.2f} em {product_info["site_name"]}', 'success')
+            # Se o link foi adicionado com sucesso e tem preço, registra o preço
+            if product_info.get('price'):
+                log_price(link_id, product_info['price'])  # Registra o preço inicial
+                flash(f'Link adicionado com sucesso! Preço atual: R$ {product_info["price"]:.2f}', 'success')
             else:
-                flash('Link adicionado, mas não foi possível detectar o preço.', 'warning')
-                
+                flash('Link adicionado com sucesso, mas não foi possível detectar o preço.', 'warning')
+            
+            return redirect(url_for('index'))
+            
+        except ValueError as e:
+            # Captura erros de validação (ex: produto não encontrado, link duplicado)
+            print(f"Erro de validação: {e}")
+            flash(str(e), 'error')
+            return redirect(url_for('index'))
+            
         except Exception as e:
-            print(f"Erro ao buscar informações do produto: {e}")
-            link_id = add_product_link(
-                product_id=product_id,
-                product_url=product_url,
-                site_name=urlparse(product_url).netloc
-            )
-            flash('Link adicionado, mas houve um erro ao buscar as informações do produto.', 'warning')
-        
-        return redirect(url_for('index'))
+            # Captura outros erros ao processar o produto
+            print(f"Erro ao processar produto: {e}")
+            flash('Erro ao adicionar link. Por favor, tente novamente.', 'error')
+            return redirect(url_for('index'))
+            
     except Exception as e:
-        print(f"Erro ao adicionar link: {e}")
+        # Captura erros gerais
+        print(f"Erro geral: {e}")
         flash('Erro ao adicionar link. Por favor, tente novamente.', 'error')
         return redirect(url_for('index'))
 
-@app.route('/delete_link/<link_id>', methods=['POST'])
+@app.route('/delete_link', methods=['POST'])
 @login_required
-def delete_link(link_id):
-    if delete_product_link(link_id):
-        flash('Link removido com sucesso!', 'success')
-    else:
-        flash('Erro ao remover link.', 'error')
+def delete_link():
+    try:
+        link_id = request.form.get('link_id')
+        if not link_id:
+            flash('ID do link não fornecido', 'error')
+            return redirect(url_for('index'))
+            
+        if delete_product_link(link_id):
+            flash('Link removido com sucesso!', 'success')
+        else:
+            flash('Erro ao remover link.', 'error')
+            
+    except Exception as e:
+        flash(f'Erro ao remover link: {str(e)}', 'error')
+        
     return redirect(url_for('index'))
 
 @app.route('/edit_product_name', methods=['POST'])
@@ -250,6 +257,25 @@ def edit_product_name():
         flash('Erro ao editar nome do produto.', 'error')
         return redirect(url_for('index'))
 
+@app.route('/delete_product', methods=['POST'])
+@login_required
+def delete_product():
+    try:
+        product_id = request.form.get('product_id')
+        if not product_id:
+            flash('ID do produto não fornecido', 'error')
+            return redirect(url_for('index'))
+            
+        if delete_product_and_links(product_id):
+            flash('Produto removido com sucesso!', 'success')
+        else:
+            flash('Erro ao remover produto.', 'error')
+            
+    except Exception as e:
+        flash(f'Erro ao remover produto: {str(e)}', 'error')
+        
+    return redirect(url_for('index'))
+
 @app.errorhandler(404)
 def page_not_found(e):
     return render_template('404.html'), 404
@@ -271,14 +297,29 @@ def background_update():
         while True:
             try:
                 print("Iniciando atualização automática...")
-                update_prices()
+                with get_db_connection() as conn:
+                    cursor = conn.cursor()
+                    cursor.execute('''
+                        SELECT id, product_url
+                        FROM product_links
+                    ''')
+                    links = cursor.fetchall()
+                    
+                    for link in links:
+                        try:
+                            product_info = fetch_product_info(link['product_url'])
+                            if product_info['price']:
+                                log_price(link['id'], product_info['price'])
+                                print(f"✓ Preço atualizado para {link['product_url']}: R$ {product_info['price']:.2f}")
+                        except Exception as e:
+                            print(f"✗ Erro ao atualizar {link['product_url']}: {str(e)}")
+                            continue
+                
                 print("Atualização automática concluída!")
-                # Aguarda 1 hora antes da próxima atualização
                 time.sleep(3600)  # 3600 segundos = 1 hora
             except Exception as e:
                 print(f"Erro na atualização automática: {e}")
-                # Em caso de erro, aguarda 5 minutos antes de tentar novamente
-                time.sleep(300)
+                time.sleep(300)  # 5 minutos em caso de erro
 
 # Use em rotas pesadas
 @cache.cached(timeout=300)

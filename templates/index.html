@@ -50,168 +50,209 @@
             <div class="row">
                 {% for product in products %}
                 <div class="col-md-6 mb-4">
-                    <div class="card mb-4">
+                    <div class="card">
                         <div class="card-header">
-                            <div class="row align-items-center">
-                                <div class="col-md-8">
-                                    <div class="d-flex align-items-center">
-                                        <h5 class="mb-0 product-name" id="product-name-{{ product._id }}">
-                                            {{ product.name }}
-                                        </h5>
-                                        <button class="btn btn-link btn-sm ms-2 edit-name-btn" 
-                                                onclick="showEditForm('{{ product._id }}')"
+                            <div class="d-flex align-items-center justify-content-between">
+                                <div class="d-flex align-items-center">
+                                    <!-- Nome do produto -->
+                                    <h5 class="mb-0 product-name" id="product-name-{{ product.id }}">
+                                        {{ product.name }}
+                                    </h5>
+                                    
+                                    <!-- Botões de ação do produto -->
+                                    <div class="ms-2">
+                                        <button class="btn btn-link btn-sm p-0 me-2" 
+                                                onclick="showEditForm('{{ product.id }}')"
                                                 title="Editar nome">
-                                            <i class="fas fa-edit"></i>
+                                            <i class="fas fa-edit text-primary"></i>
                                         </button>
+                                        
+                                        <form action="{{ url_for('delete_product') }}" 
+                                              method="post" 
+                                              class="d-inline">
+                                            <input type="hidden" name="product_id" value="{{ product.id }}">
+                                            <button type="submit" 
+                                                    class="btn btn-link btn-sm p-0"
+                                                    onclick="return confirm('Tem certeza que deseja excluir este produto e todos os seus links?')"
+                                                    title="Excluir produto">
+                                                <i class="fas fa-trash text-danger"></i>
+                                            </button>
+                                        </form>
                                     </div>
-                                    <!-- Formulário de edição (inicialmente oculto) -->
-                                    <form action="{{ url_for('edit_product_name') }}" 
-                                          method="POST" 
-                                          class="edit-name-form d-none" 
-                                          id="edit-form-{{ product._id }}">
-                                        <div class="input-group">
-                                            <input type="hidden" name="product_id" value="{{ product._id }}">
-                                            <input type="text" 
-                                                   name="new_name" 
-                                                   class="form-control form-control-sm"
-                                                   value="{{ product.name }}"
-                                                   required>
-                                            <button type="submit" class="btn btn-primary btn-sm">
-                                                <i class="fas fa-check"></i>
-                                            </button>
-                                            <button type="button" 
-                                                    class="btn btn-secondary btn-sm"
-                                                    onclick="hideEditForm('{{ product._id }}')">
-                                                <i class="fas fa-times"></i>
-                                            </button>
-                                        </div>
-                                    </form>
                                 </div>
-                                <div class="col-md-4 text-end">
-                                    {% if product.links and product.links[0].image_url %}
-                                        <img src="{{ product.links[0].image_url }}" 
-                                             class="img-fluid rounded" 
-                                             alt="{{ product.name }}"
-                                             style="max-height: 100px; object-fit: contain;">
-                                    {% endif %}
-                                </div>
-                            </div>
-                        </div>
-                        <div class="card-body">
-                            {% if product.best_price and product.best_price.value %}
-                                <div class="mb-3">
-                                    <strong>Melhor preço:</strong> R$ {{ "%.2f"|format(product.best_price.value) }}
-                                    em <a href="{{ product.best_price.link.url }}" target="_blank">{{ product.best_price.link.site_name }}</a>
-                                    {% if product.price_variation > 0 %}
-                                        <br>
-                                        <small>Variação de preço: {{ "%.1f"|format(product.price_variation) }}%</small>
-                                    {% endif %}
-                                </div>
-                            {% endif %}
-
-                            {% if product.links %}
-                                <div class="row">
-                                    {% for link in product.links %}
-                                        <div class="col-md-6 mb-3">
-                                            <div class="card">
-                                                <div class="card-body">
-                                                    <h6 class="card-title d-flex align-items-center">
-                                                        <div class="site-logos me-2">
-                                                            {% if link.logo_url %}
-                                                                <img src="{{ link.logo_url }}" 
-                                                                     alt="{{ link.site_name }} logo" 
-                                                                     style="height: 20px; max-width: 100px; object-fit: contain;">
-                                                            {% elif link.favicon_url %}
-                                                                <img src="{{ link.favicon_url }}" 
-                                                                     alt="{{ link.site_name }} icon" 
-                                                                     style="width: 16px; height: 16px;">
-                                                            {% endif %}
-                                                        </div>
-                                                        {{ link.site_name }}
-                                                    </h6>
-                                                    <a href="{{ link.url }}" target="_blank" class="text-decoration-none">
-                                                        <div class="d-flex justify-content-between align-items-center mb-2">
-                                                            {% if link.current_price %}
-                                                                <span class="badge bg-success fs-6">
-                                                                    R$ {{ "%.2f"|format(link.current_price) }}
-                                                                </span>
-                                                            {% endif %}
-                                                            <form action="{{ url_for('delete_link', link_id=link.id) }}" method="post" class="d-inline">
-                                                                <button type="submit" class="btn btn-danger btn-sm" 
-                                                                        onclick="return confirm('Tem certeza que deseja remover este link?')">
-                                                                    <i class="fas fa-trash"></i> Remover
-                                                                </button>
-                                                            </form>
-                                                        </div>
-                                                    </a>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    {% endfor %}
-                                </div>
-                            {% endif %}
-                            <div class="price-charts mt-4">
-                                <h6>Histórico de Preços por Site</h6>
-                                <div id="priceChart{{ product.id }}" style="width:100%; height:400px;"></div>
-                            </div>
-                            <div class="mt-3">
-                                <button class="btn btn-sm btn-primary" data-bs-toggle="modal" 
-                                        data-bs-target="#addLinkModal" 
-                                        data-product-id="{{ product.id }}">
+                                
+                                <!-- Botão de adicionar link -->
+                                <button type="button" 
+                                        class="btn btn-sm btn-primary" 
+                                        data-bs-toggle="modal" 
+                                        data-bs-target="#addLinkModal-{{ product.id }}">
                                     Adicionar Link
                                 </button>
                             </div>
+                            
+                            <!-- Formulário de edição (inicialmente oculto) -->
+                            <form action="{{ url_for('edit_product_name') }}" 
+                                  method="POST" 
+                                  class="edit-name-form d-none mt-2" 
+                                  id="edit-form-{{ product.id }}">
+                                <div class="input-group">
+                                    <input type="hidden" name="product_id" value="{{ product.id }}">
+                                    <input type="text" 
+                                           name="new_name" 
+                                           class="form-control form-control-sm"
+                                           value="{{ product.name }}"
+                                           required>
+                                    <button type="submit" class="btn btn-primary btn-sm">
+                                        <i class="fas fa-check"></i>
+                                    </button>
+                                    <button type="button" 
+                                            class="btn btn-secondary btn-sm"
+                                            onclick="hideEditForm('{{ product.id }}')">
+                                        <i class="fas fa-times"></i>
+                                    </button>
+                                </div>
+                            </form>
+                        </div>
+
+                        <div class="card-body">
+                            <!-- Gráfico de preços -->
+                            {% if product.links %}
+                                <div id="priceChart{{ product.id }}" class="mb-4" style="width:100%; height:300px;"></div>
+                                
+                                <script>
+                                    document.addEventListener('DOMContentLoaded', function() {
+                                        try {
+                                            console.log('Iniciando criação do gráfico para produto {{ product.id }}');
+                                            const data{{ product.id }} = [];
+                                            
+                                            {% for link in product.links %}
+                                                {% if link.price_data and link.price_data.prices %}
+                                                    console.log('Dados do link {{ link.site_name }}:', {
+                                                        prices: {{ link.price_data.prices|tojson }},
+                                                        dates: {{ link.price_data.dates|tojson }}
+                                                    });
+                                                    
+                                                    data{{ product.id }}.push({
+                                                        x: {{ link.price_data.dates|tojson }},
+                                                        y: {{ link.price_data.prices|tojson }},
+                                                        type: 'scatter',
+                                                        mode: 'lines+markers',
+                                                        name: '{{ link.site_name }}',
+                                                        line: {
+                                                            color: getSiteColor('{{ link.site_name }}'),
+                                                            width: 2
+                                                        },
+                                                        marker: {
+                                                            color: getSiteColor('{{ link.site_name }}'),
+                                                            size: 6
+                                                        },
+                                                        hovertemplate: 'R$ %{y:.2f}<br>%{x}<extra></extra>'
+                                                    });
+                                                {% endif %}
+                                            {% endfor %}
+                                            
+                                            if (data{{ product.id }}.length > 0) {
+                                                console.log('Dados do gráfico:', data{{ product.id }});
+                                                const layout = {
+                                                    margin: { t: 20, r: 10, l: 60, b: 40 },
+                                                    xaxis: { 
+                                                        title: 'Data',
+                                                        type: 'date',
+                                                        tickformat: '%d/%m/%Y',
+                                                        tickangle: -45,
+                                                        automargin: true
+                                                    },
+                                                    yaxis: { 
+                                                        title: 'Preço (R$)',
+                                                        automargin: true,
+                                                        tickformat: 'R$ %.2f'
+                                                    },
+                                                    showlegend: true,
+                                                    legend: {
+                                                        orientation: 'h',
+                                                        yanchor: 'bottom',
+                                                        y: -0.3,
+                                                        xanchor: 'center',
+                                                        x: 0.5
+                                                    },
+                                                    plot_bgcolor: '#ffffff',
+                                                    paper_bgcolor: '#ffffff'
+                                                };
+                                                
+                                                Plotly.newPlot(
+                                                    'priceChart{{ product.id }}', 
+                                                    data{{ product.id }}, 
+                                                    layout,
+                                                    {
+                                                        responsive: true,
+                                                        displayModeBar: false
+                                                    }
+                                                );
+                                                console.log('Gráfico criado com sucesso');
+                                            } else {
+                                                console.log('Sem dados para criar o gráfico');
+                                                document.getElementById('priceChart{{ product.id }}').innerHTML = 
+                                                    '<div class="text-center text-muted p-3">Sem dados de preço disponíveis</div>';
+                                            }
+                                        } catch (error) {
+                                            console.error('Erro ao criar gráfico:', error);
+                                            document.getElementById('priceChart{{ product.id }}').innerHTML = 
+                                                '<div class="text-center text-danger p-3">Erro ao criar gráfico</div>';
+                                        }
+                                    });
+                                </script>
+                            {% endif %}
+                            
+                            <!-- Lista de links -->
+                            {% for link in product.links %}
+                                <div class="mb-3">
+                                    <div class="d-flex align-items-center justify-content-between">
+                                        <div class="d-flex align-items-center">
+                                            <!-- Ícone do site -->
+                                            <div class="me-2">
+                                                {% if link.favicon_url %}
+                                                    <img src="{{ link.favicon_url }}" 
+                                                         alt="{{ link.site_name }} icon" 
+                                                         style="width: 16px; height: 16px;">
+                                                {% endif %}
+                                            </div>
+                                            
+                                            <!-- Nome do site e preço atual -->
+                                            <div>
+                                                <h6 class="mb-1">{{ link.site_name }}</h6>
+                                                {% if link.price_data and link.price_data.prices %}
+                                                    <p class="mb-0">
+                                                        Preço atual: R$ {{ "%.2f"|format(link.price_data.prices[-1]) }}
+                                                    </p>
+                                                {% endif %}
+                                            </div>
+                                        </div>
+
+                                        <!-- Botões de ação -->
+                                        <div>
+                                            <a href="{{ link.product_url }}" 
+                                               target="_blank" 
+                                               class="btn btn-sm btn-outline-primary">
+                                                Visitar
+                                            </a>
+                                            <form action="{{ url_for('delete_link') }}" 
+                                                  method="post" 
+                                                  class="d-inline">
+                                                <input type="hidden" name="link_id" value="{{ link.id }}">
+                                                <button type="submit" 
+                                                        class="btn btn-sm btn-outline-danger"
+                                                        onclick="return confirm('Tem certeza que deseja excluir este link?')">
+                                                    <i class="fas fa-trash"></i>
+                                                </button>
+                                            </form>
+                                        </div>
+                                    </div>
+                                </div>
+                            {% endfor %}
                         </div>
                     </div>
                 </div>
                 {% endfor %}
-            </div>
-
-            <!-- Modal Adicionar Produto -->
-            <div class="modal fade" id="addProductModal" tabindex="-1">
-                <div class="modal-dialog">
-                    <div class="modal-content">
-                        <div class="modal-header">
-                            <h5 class="modal-title">Adicionar Novo Produto</h5>
-                            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                        </div>
-                        <form action="{{ url_for('add_new_product') }}" method="POST">
-                            <div class="modal-body">
-                                <div class="mb-3">
-                                    <label class="form-label">Nome do Produto</label>
-                                    <input type="text" class="form-control" name="product_name" required>
-                                </div>
-                            </div>
-                            <div class="modal-footer">
-                                <button type="submit" class="btn btn-primary">Adicionar</button>
-                            </div>
-                        </form>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Modal Adicionar Link -->
-            <div class="modal fade" id="addLinkModal" tabindex="-1">
-                <div class="modal-dialog">
-                    <div class="modal-content">
-                        <div class="modal-header">
-                            <h5 class="modal-title">Adicionar Novo Link</h5>
-                            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                        </div>
-                        <form action="{{ url_for('add_link') }}" method="post">
-                            <input type="hidden" name="product_id" id="linkProductId">
-                            <div class="modal-body">
-                                <div class="mb-3">
-                                    <label class="form-label">URL do Produto</label>
-                                    <input type="url" class="form-control" name="product_url" required>
-                                </div>
-                            </div>
-                            <div class="modal-footer">
-                                <button type="submit" class="btn btn-primary">Adicionar</button>
-                            </div>
-                        </form>
-                    </div>
-                </div>
             </div>
         {% else %}
             <div class="text-center mt-5">
@@ -221,142 +262,75 @@
         {% endif %}
     </div>
 
+    <div class="modal fade" id="addProductModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Adicionar Novo Produto</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <form action="{{ url_for('add_new_product') }}" method="post">
+                    <div class="modal-body">
+                        <div class="mb-3">
+                            <label class="form-label">Nome do Produto</label>
+                            <input type="text" class="form-control" name="product_name" required>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="submit" class="btn btn-primary">Adicionar</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal fade" id="addLinkModal-{{ product.id }}" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Adicionar Link para {{ product.name }}</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <form action="{{ url_for('add_link') }}" method="post">
+                    <input type="hidden" name="product_id" value="{{ product.id }}">
+                    <div class="modal-body">
+                        <div class="mb-3">
+                            <label class="form-label">URL do Produto</label>
+                            <input type="url" class="form-control" name="product_url" required>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="submit" class="btn btn-primary">Adicionar</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script>
-        // Adicione isso no início do script, antes do loop dos produtos
+        // Cores para diferentes sites
         const siteColors = {
-            'Amazon': '#FF9900',
-            'Magalu': '#0086FF',
             'Americanas': '#E60014',
             'Mercadolivre': '#FFE600',
             'Apple': '#A2AAAD',
             'Kabum': '#F37021',
             'Pichau': '#0473B0',
-            'Terabyte': '#00B4DB'
+            'Terabyte': '#00B4DB',
+            'Goimports': '#2E7D32'
         };
 
         function getSiteColor(siteName) {
-            // Normaliza o nome do site (remove espaços, acentos e converte para minúsculas)
-            const normalizedName = siteName.toLowerCase()
-                .normalize('NFD')
-                .replace(/[\u0300-\u036f]/g, '')
-                .replace(/\s+/g, '');
-            
-            // Retorna a cor do site ou uma cor aleatória se o site não estiver mapeado
-            const color = siteColors[normalizedName] || 
-                '#' + Math.floor(Math.random()*16777215).toString(16).padStart(6, '0');
-            
-            return color;  // Retorna a mesma cor para ser usada na linha e nos marcadores
+            return siteColors[siteName] || '#' + Math.floor(Math.random()*16777215).toString(16);
         }
 
-        {% if current_user.is_authenticated %}
-            {% for product in products %}
-                {% if product.links %}
-                    const data{{ product.id }} = [];
-                    
-                    {% for link in product.links %}
-                        {% if link.price_data and link.price_data.prices %}
-                            // Filtra apenas os pontos onde existem preços
-                            const validPrices{{ link.id }} = [];
-                            const validDates{{ link.id }} = [];
-                            
-                            {% for i in range(link.price_data.prices|length) %}
-                                {% if link.price_data.prices[i] is not none %}
-                                    validPrices{{ link.id }}.push({{ link.price_data.prices[i] }});
-                                    validDates{{ link.id }}.push("{{ link.price_data.dates[i] }}");
-                                {% endif %}
-                            {% endfor %}
-                            
-                            if (validPrices{{ link.id }}.length > 0) {
-                                const siteColor = getSiteColor('{{ link.site_name }}');  // Pega a cor uma vez só
-                                data{{ product.id }}.push({
-                                    x: validDates{{ link.id }},
-                                    y: validPrices{{ link.id }},
-                                    type: 'scatter',
-                                    mode: 'lines+markers',
-                                    name: '{{ link.site_name }}',
-                                    line: {
-                                        color: siteColor,  // Usa a mesma cor para a linha
-                                        width: 2
-                                    },
-                                    marker: {
-                                        color: siteColor,  // Usa a mesma cor para os marcadores
-                                        size: 6,
-                                        symbol: 'circle'
-                                    },
-                                    hovertemplate: 'R$ %{y:.2f}<br>%{x}<extra></extra>'
-                                });
-                            }
-                        {% endif %}
-                    {% endfor %}
-                    
-                    if (data{{ product.id }}.length > 0) {
-                        const layout = {
-                            title: 'Histórico de Preços por Site',
-                            xaxis: { 
-                                title: 'Data',
-                                tickangle: -45,
-                                type: 'date',
-                                tickformat: '%d/%m/%Y %H:%M',
-                                gridcolor: '#E1E1E1'
-                            },
-                            yaxis: { 
-                                title: 'Preço (R$)',
-                                tickformat: '.2f',
-                                tickprefix: 'R$ ',
-                                gridcolor: '#E1E1E1'
-                            },
-                            showlegend: true,
-                            legend: {
-                                x: 0,
-                                y: 1.2
-                            },
-                            margin: {
-                                l: 60,
-                                r: 30,
-                                t: 50,
-                                b: 100
-                            },
-                            hovermode: 'closest',
-                            plot_bgcolor: '#FFFFFF',
-                            paper_bgcolor: '#FFFFFF'
-                        };
-                        
-                        const config = {
-                            responsive: true,
-                            displayModeBar: true,
-                            modeBarButtonsToRemove: ['lasso2d', 'select2d'],
-                            displaylogo: false
-                        };
-                        
-                        Plotly.newPlot(
-                            'priceChart{{ product.id }}', 
-                            data{{ product.id }}, 
-                            layout,
-                            config
-                        );
-                    }
-                {% endif %}
-            {% endfor %}
-        {% endif %}
-
-        document.getElementById('addLinkModal').addEventListener('show.bs.modal', function (event) {
-            var button = event.relatedTarget;
-            var productId = button.getAttribute('data-product-id');
-            document.getElementById('linkProductId').value = productId;
-        });
-
         function showEditForm(productId) {
-            // Esconde o nome e o botão de editar
             document.getElementById(`product-name-${productId}`).parentElement.classList.add('d-none');
-            // Mostra o formulário
             document.getElementById(`edit-form-${productId}`).classList.remove('d-none');
         }
 
         function hideEditForm(productId) {
-            // Mostra o nome e o botão de editar
             document.getElementById(`product-name-${productId}`).parentElement.classList.remove('d-none');
-            // Esconde o formulário
             document.getElementById(`edit-form-${productId}`).classList.add('d-none');
         }
     </script>
